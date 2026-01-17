@@ -6,5 +6,6 @@ backend/models/__pycache__
 backend/routes/__pycache__
 backend/schemas/__pycache__
 backend/tasks.db
-bot/.env
+/.env
 bot/logs.log
+bot/__pycache__

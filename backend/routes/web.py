@@ -1,47 +1,52 @@
 from fastapi import APIRouter, Depends, Request, status
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from models.models import User
+from sqlalchemy.orm import selectinload
 
+from backend.models.models import User
+from backend.dependencies.dependency import get_db
 
-from dependencies.dependency import get_db
+web_router = APIRouter(tags=['Web Pages'])
+templates = Jinja2Templates(directory="backend/templates")
 
-
-web_router = APIRouter()
-templates = Jinja2Templates(directory="templates")
-
-@web_router.get('/')
+@web_router.get('/', response_class=HTMLResponse)
 async def index(request: Request):
     return templates.TemplateResponse(request=request, name='index.html')
 
-@web_router.get("/login/")
-async def login(request:Request):
+@web_router.get("/login/", response_class=HTMLResponse)
+async def login_page(request: Request):
     return templates.TemplateResponse(request=request, name="login.html")
 
-@web_router.get("/users/", response_class = HTMLResponse)
-async def get_users_page(request:Request, db: Session = Depends(get_db)):
-    stmnt = select(User)
-    users:list = db.scalars(stmnt).all()
-    context:dict = {}
-    i:int = 1
-    for user in users:
-        new_el = {str(i): user.username}
-        context.update(new_el)
-        i += 1
-    return templates.TemplateResponse("users.html", {"request": request, "context": context})
-
-@web_router.get("/register/")
-async def login(request:Request):
+@web_router.get("/register/", response_class=HTMLResponse)
+async def register_page(request: Request):
     return templates.TemplateResponse(request=request, name="register.html")
 
-@web_router.get("/tasks/{username}")
-async def get_tasks_page(request:Request, username:str, db: Session = Depends(get_db)):
-    stmnt = select(User).where(User.username == username)
-    context = db.scalars(stmnt).one()
-    return templates.TemplateResponse("tasks.html", {"request": request, "context": context})
+@web_router.get("/users/", response_class=HTMLResponse)
+async def get_users_page(request: Request, db: AsyncSession = Depends(get_db)):
+    # Асинхронное получение списка
+    result = await db.execute(select(User))
+    users = result.scalars().all()
+    
+    # Передаем список объектов напрямую. Jinja2 сама возьмет нужные поля.
+    return templates.TemplateResponse(
+        "users.html", 
+        {"request": request, "users": users}
+    )
 
-
-
-
+@web_router.get("/tasks/{username}", response_class=HTMLResponse)
+async def get_tasks_page(request: Request, username: str, db: AsyncSession = Depends(get_db)):
+    # Ищем пользователя со всеми его задачами
+    result = await db.execute(select(User).where(User.username == username).options(selectinload(User.tasks)))
+    print(result)
+    user = result.scalars().first()
+    
+    if not user:
+        # Можно вернуть 404 страницу
+        return templates.TemplateResponse("404.html", {"request": request}, status_code=404)
+        
+    return templates.TemplateResponse(
+        "tasks.html", 
+        {"request": request, "user": user}
+    )

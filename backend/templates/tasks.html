@@ -9,20 +9,31 @@
 
 <body>
     <h1 style="text-align: center;">Tasks</h1>
-    <h2 style="text-align: center";>Список задач пользователя <p id="user">{{ context.username }}</p></h2>
+    <h2 style="text-align: center";>Список задач пользователя <p id="user">{{ user.username }}</p></h2>
+    <!-- Скрытый инпут в любом месте страницы -->
+    <input type="date" id="tempDate" style="
+    position: fixed; 
+    top: 50%; 
+    left: 50%; 
+    transform: translate(-50%, -50%); 
+    opacity: 0; 
+    pointer-events: none;
+    z-index: -1000;
+">
+
   
     <table>
         <thead><tr><th class="ID"></th><th>№</th><th>Задача</th><th>Описание</th><th>Срок</th><th>Статус</th></tr></thead>
         <tbody>
-            {%for task in context.tasks%}
-                <tr>
+            {%for task in user.tasks%}
+                <tr class='task-item'>
                     <th class="ID">{{task.id}}</th>
                     <th>{{loop.index}}</th>
-                    <th class="task">{{task.task}}</th>
-                    <th class="describe">{{task.describe}}</th>
-                    <th class="ex_date">{{task.ex_date}}</th>
-                    <th class="status">{{task.status}}</th>
-                    <th class="button_del"><button id={{task.id}} style='width: 70%; margin: auto;'>Удалить</th>
+                    <th class="task">{{task.title}}</th>
+                    <th class="describe">{{task.description}}</th>
+                    <th class="ex_date">{{task.deadline}}</th>
+                    <th class="status">{{task.is_completed}}</th>
+                    <th class="button_del" data-id="{{task.id}}">Удалить</th>
                 </tr>
             {%endfor%}
         </tbody>
@@ -57,93 +68,140 @@
             document.querySelector('#taskForm').style.display = 'block';
         }
 
-        const delButtons = document.querySelectorAll('.button_del')
+        const delButtons = document.querySelectorAll('.button_del');
+
         for (const delButton of delButtons) {
-            delButton.addEventListener('click', function(e) {
-                let id = e.target.id
-                let username = document.querySelector('#user').textContent;
-                fetch("/task/delete/", {
-                    method: "DELETE",
-                    headers: { "Accept": "application/json", "Content-Type": "application/json" },
-                    body: JSON.stringify({ 
-                        id: id,
-                        username: username
-                    })
-                })
-                .then(res => {
-                    if (res.redirected) {
-                        window.location.href = res.url;
-                        return;
-                    } 
-                    else
-                        return res.text();
-                });
-            })
-        }
-        
-        async function change() {
-            let cells = document.querySelector('tbody');
-            let classes = ['task', 'describe', 'ex_date', 'status']
-            cells.addEventListener('dblclick', function(e) {
-                if ((e.target.tagName == 'TH') && (classes.includes(e.target.className))) {
-                    let id = Number(e.target.parentElement.cells[0].textContent);
-                    let field = e.target.className;
-                    let new_value = prompt('Введите новое значение: ');
-                    let name = document.querySelector('#user').textContent;
-                    console.log(id, field, new_value, name)
-                    if (new_value) {
-                        e.target.textContent = new_value;
-                        fetch("/task/update/", {
-                            method: "PUT",
-                            headers: { "Accept": "application/json", "Content-Type": "application/json" },
-                            body: JSON.stringify({ 
-                                id: id,
-                                field: field,
-                                new_value: new_value,
-                                username: name
-                            })
+            delButton.addEventListener('click', async function(e) {
+                const taskId = e.currentTarget.dataset.id;
+                console.log(taskId)
+                const taskElement = e.currentTarget.closest('.task-item'); // Находим контейнер задачи, чтобы скрыть его
+
+                if (!confirm("Вы уверены, что хотите удалить задачу?")) return;
+
+                try {
+                    const response = await fetch("/task/delete/", {
+                        method: "DELETE",
+                        headers: { 
+                            "Accept": "application/json", 
+                            "Content-Type": "application/json" 
+                        },
+                        body: JSON.stringify({ 
+                            id: Number(taskId)
+                            // username лучше брать из сессии на бэкенде
                         })
-                        .then(res => {
-                            if (res.redirected) {
-                                window.location.href = res.url;
-                                return;
-                            } 
-                            else
-                                return res.text();
-                        });
+                    });
+
+                    if (response.ok) {
+                        // 2. Удаляем элемент со страницы без перезагрузки
+                        if (taskElement) {
+                            taskElement.remove();
+                        } else {
+                            window.location.reload(); // Если нет контейнера, обновляем страницу
+                        }
+                    } else {
+                        const errorData = await response.json();
+                        alert(`Ошибка: ${errorData.detail || "Не удалось удалить задачу"}`);
                     }
+                } catch (error) {
+                    console.error("Ошибка сети:", error);
+                    alert("Проблема с соединением с сервером");
+                }
+            });
+        }
+
+        // Определяем соответствие классов таблицы полям в базе данных
+        const fieldMapping = {
+            'task': 'title',
+            'describe': 'description',
+            'ex_date': 'deadline',
+            'status': 'is_completed'
+        };
+
+        async function change() {
+            let tbody = document.querySelector('tbody');
+            let classes = Object.keys(fieldMapping);
+
+            tbody.onclick = null; 
+
+            tbody.addEventListener('dblclick', async function(e) {
+                if (e.target.tagName === 'TH' && classes.includes(e.target.className)) {
+                    let id = Number(e.target.parentElement.cells[0].textContent);
+                    let htmlClass = e.target.className;
+                    let dbField = fieldMapping[htmlClass];
+                    let newValue;
+                    if (dbField == 'deadline') {
+                        async function getDateFromUser() {
+                            const dateInput = document.getElementById('tempDate');
+                            
+                            dateInput.showPicker(); 
+
+                            return new Promise((resolve) => {
+                                dateInput.onchange = () => {
+                                    resolve(dateInput.value); // Вернет строку "ГГГГ-ММ-ДД"
+                                };
+                            });
+                        }
+                        newValue = await getDateFromUser();
+                    }
+                    
                     else {
-                        window.location.reload(true)
+                        newValue = prompt('Введите новое значение:')
+                    };
+                    let username = document.querySelector('#user').textContent.trim();
+                    console.log(newValue)
+
+                    if (newValue !== null && newValue.trim() !== "") {
+                        // Оптимистичное обновление UI
+                        const originalValue = e.target.textContent;
+                        e.target.textContent = newValue;
+
+                        try {
+                            const response = await fetch("/task/update/", {
+                                method: "PUT",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({ 
+                                    id: id,
+                                    field: dbField, // Отправляем уже title/description/deadline
+                                    new_value: newValue,
+                                    username: username
+                                })
+                            });
+
+                            if (!response.ok) throw new Error("Ошибка сервера");
+                            
+                            console.log("Обновлено успешно");
+                        } catch (err) {
+                            alert("Не удалось обновить задачу");
+                            e.target.textContent = originalValue; // Возвращаем старое значение при ошибке
+                        }
                     }
                 }
-            })
-
+            });
         }
 
-        async function add(){
-            let name = document.querySelector("#name").value;
+
+        async function add() {
+            let title = document.querySelector("#name").value;
             let description = document.querySelector("#description").value;
-            let date = document.querySelector("#date").value;
-            let currentUser = document.querySelector('#user').textContent
-            fetch("/task/add/", {
+            let deadline = document.querySelector("#date").value;
+            let currentUser = document.querySelector('#user').textContent.trim();
+
+            const response = await fetch("/task/add/", {
                 method: "POST",
-                headers: { "Accept": "application/json", "Content-Type": "application/json" },
+                headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ 
-                    task: name,
-                    describe: description,
-                    ex_date: date,
+                    title: title,       // было 'task'
+                    description: description, // было 'describe'
+                    deadline: deadline, // было 'ex_date'
                     username: currentUser
                 })
-            })
-            .then(res => {
-                if (res.redirected) {
-                    window.location.href = res.url;
-                    return;
-                } 
-                else
-                    return res.text();
             });
-            
+
+            if (response.redirected) {
+                window.location.href = response.url;
+            } else if (response.ok) {
+                window.location.href = `/tasks/${currentUser}`;
+            }
         }
 
     </script>

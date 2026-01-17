@@ -22,41 +22,72 @@
         <button onclick="window.location.href='/register/'">Регистрация</button>
     </div>
     <script>
-        let cook = document.cookie;
-        let str = cook.split('; ');
-        let cookieObject = {};
-        let curr;
-        for (let i = 0; i < str.length; ++i) {
-            curr = str[i].split('=');
-            cookieObject[curr[0]] = curr[1];
-        }
-        async function check() {
-            let username = document.querySelector("#username").value
-            if (username in cookieObject) {
-                token = cookieObject[username]
-                url = '/auth/users/me/'
-                let response = await fetch(url, {
-                    headers: {Authorization: `Bearer ${token}`}
-                  });
-                if (response.status == 200) {
-                    url_redirect = '/tasks/'+username
-                    window.location.href=url_redirect
-                }
-            }
-        }
-        checkForm.onsubmit = async (e) => {
-            e.preventDefault();
-            let username = document.querySelector("#username").value
-            let response = await fetch('/auth/token/', {
-                method: 'POST',
-                body: new FormData(checkForm)
-            });
+    function getCookie(name) {
+        let matches = document.cookie.match(new RegExp(
+            "(?:^|; )" + name.replace(/([\.$?*|{}\(\)\[\]\\\/\+^])/g, '\\$1') + "=([^;]*)"
+        ));
+        return matches ? decodeURIComponent(matches[1]) : undefined;
+    }
+
+    /**
+     * Функция "Бесшовного входа" (Auto-login).
+     */
+    async function check() {
+        const usernameInput = document.querySelector("#username");
+        const username = usernameInput.value.trim();
         
-            if (response.status == 200) {
-                url_redirect = '/tasks/'+username
-                window.location.href=url_redirect
+        const token = getCookie(username);
+        
+        if (token) {
+            try {
+                const response = await fetch('/auth/me', {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+
+                if (response.ok) {
+                    console.log("Токен валиден, выполняем авто-вход...");
+                    window.location.href = `/tasks/${username}`;
+                }
+            } catch (error) {
+                console.error("Ошибка при проверке токена:", error);
             }
-        };
+        }
+    }
+
+    /**
+     * Обработка отправки формы логина.
+     */
+    const checkForm = document.querySelector("#checkForm");
+    
+    checkForm.onsubmit = async (e) => {
+        e.preventDefault();
+        
+        const username = document.querySelector("#username").value.trim();
+        const formData = new FormData(checkForm);
+
+        try {
+            const response = await fetch('/auth/token', {
+                method: 'POST',
+                body: formData
+            });
+
+            if (response.ok) {
+                const result = await response.json();
+                document.cookie = `${username}=${result.access_token}; path=/; max-age=1800; samesite=lax`;
+                window.location.href = `/tasks/${username}`;
+            } else {
+                const errorData = await response.json();
+                alert(`Ошибка входа: ${errorData.detail || "Неверный логин или пароль"}`);
+            }
+        } catch (error) {
+            console.error("Критическая ошибка при авторизации:", error);
+            alert("Сервер недоступен. Попробуйте позже.");
+        }
+    };
+
       </script>
 </body>
 </html>

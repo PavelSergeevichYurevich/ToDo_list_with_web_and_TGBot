@@ -1,21 +1,42 @@
+import os
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
+from dotenv import load_dotenv
 import uvicorn
-from database.database import engine, Base
-from models.models import User, Task
-from routes import auth, user, task, web
+from contextlib import asynccontextmanager
+from backend.routes import auth, user, task, web
 
-app = FastAPI(title='Exam')
+env_path = Path(__file__).resolve().parent / '.env'
+load_dotenv(dotenv_path=env_path)
+HOST = os.getenv("APP_HOST", "127.0.0.1")
+PORT = int(os.getenv("APP_PORT", 8000))
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    print('Starting server...')
+    yield
+    print('Server stopped')
+
+app = FastAPI(
+    title='Exam ToDo Project',
+    lifespan=lifespan
+)
+
+# Подключаем роутеры
 app.include_router(auth.auth_router)
 app.include_router(user.user_router)
 app.include_router(task.task_router)
 app.include_router(web.web_router)
-app.mount("/static", StaticFiles(directory=Path(__file__).parent.absolute() / "static"), name="static")
 
-HOST = '127.0.0.1'
+static_path = Path(__file__).parent.absolute() / "static"
+app.mount("/static", StaticFiles(directory=static_path), name="static")
+
 if __name__ == '__main__':
-    Base.metadata.create_all(bind=engine)
-    print('Starting server')
-    uvicorn.run('main:app', port=8000, host=HOST, reload=True)
-    print('Server stopped')
+    
+    uvicorn.run(
+        'main:app', 
+        port=PORT, 
+        host=HOST, 
+        reload=True
+    )
